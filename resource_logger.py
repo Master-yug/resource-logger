@@ -9,6 +9,7 @@ import shutil
 import psutil
 import getpass
 import sys
+import datetime
 
 # Redirect standard output to a log file
 log_file = open("system_metrics.log", "w")
@@ -71,7 +72,14 @@ def temperature_sensors_data():
 
 #----output logging        
 user_name = getpass.getuser()    
-print("USER:",user_name,("\n"))
+print("USER:",user_name,(""))
+
+curtim = datetime.datetime.now()
+print(curtim)
+
+timsta = curtim.timestamp()
+print(timsta,"\n")
+
 
 if not (check_disk_data("/") or cpu_usage_data() or virtual_memory_data() or swap_memory_data() or netword_usage_data()) :
     print("Excecuted successfully!")
