@@ -8,7 +8,11 @@ Created on Tue Jun  3 20:57:53 2025
 import shutil
 import psutil
 import getpass
+import sys
 
+# Redirect standard output to a log file
+log_file = open("system_metrics.log", "w")
+sys.stdout = log_file
   
 def check_disk_data(disk):
     cdd = shutil.disk_usage(disk)
@@ -60,6 +64,10 @@ def netword_usage_data():
     print ("outgoing packets dropped =", nud.dropout)
     print("")
     return
+def temperature_sensors_data():
+    tsd = psutil.sensors_temperatures()
+    print(tsd)
+
 
 #----output logging        
 user_name = getpass.getuser()    
@@ -69,3 +77,6 @@ if not (check_disk_data("/") or cpu_usage_data() or virtual_memory_data() or swa
     print("Excecuted successfully!")
 else:
     print("ERROR GETTING METRICS!")
+    
+  
+log_file.close()    
