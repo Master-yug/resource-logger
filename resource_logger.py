@@ -1,41 +1,25 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jun  3 20:57:53 2025
-@author: master-yug
-"""
-
-import os
-import shutil
 import psutil
 import getpass
-import sys
 import datetime
-import csv
-import statistics as st
 import sqlite3
-import logging
+import os
+import time
+import statistics as st
+import traceback
 
-# === Setup Paths ===
-log_dir = "logs"
-os.makedirs(log_dir, exist_ok=True)
+# --- Configuration
+LOG_DIR = "logs"
+LOG_FILE = os.path.join(LOG_DIR, "system_metrics.log")
+DB_FILE = os.path.join(LOG_DIR, "system_metrics.db")
+INTERVAL = 30  # seconds
 
-LOG_FILE = os.path.join(log_dir, "system_metrics.log")
-DB_FILE = os.path.join(log_dir, "system_metrics.db")
+os.makedirs(LOG_DIR, exist_ok=True)
 
-# === Configure Logging ===
-logger = logging.getLogger("ResourceLogger")
-logger.setLevel(logging.INFO)
-log_handler = logging.FileHandler(LOG_FILE)
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
-log_handler.setFormatter(formatter)
-logger.addHandler(log_handler)
 
-# === Database Setup ===
-def setup_db():
+def init_database():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS metrics (
             timestamp TEXT,
             disk_used REAL,
@@ -46,9 +30,9 @@ def setup_db():
             mem_total REAL,
             mem_used REAL,
             mem_free REAL,
-            swp_total REAL,
-            swp_used REAL,
-            swp_free REAL,
+            swap_total REAL,
+            swap_used REAL,
+            swap_free REAL,
             net_bytes_sent INTEGER,
             net_bytes_recv INTEGER,
             net_packets_sent INTEGER,
@@ -58,124 +42,124 @@ def setup_db():
             net_packetdrop_out INTEGER,
             net_packetdrop_in INTEGER
         )
-    """)
+    ''')
     conn.commit()
-    conn.close()
+    return conn
 
-setup_db()
 
-# === Metric Functions ===
-def check_disk_data(disk):
-    logger.info("disk log:")
-    usage = shutil.disk_usage(disk)
-    used = round(usage.used / 1073741824, 2)
-    free = round(usage.free / 1073741824, 2)
-    logger.info(f"used = {used} GB")
-    logger.info(f"free = {free} GB\n")
-    return used, free
+def check_disk_data():
+    usage = psutil.disk_usage("/")
+    return round(usage.used / 1e9, 2), round(usage.free / 1e9, 2)
 
-def virtual_memory_data():
-    vmd = psutil.virtual_memory()
-    total = round(vmd.total / 1073741824, 2)
-    used = round(vmd.used / 1073741824, 2)
-    free = round(vmd.available / 1073741824, 2)
-    logger.info("virtual memory log:")
-    logger.info(f"total = {total} GB")
-    logger.info(f"used = {used} GB")
-    logger.info(f"free = {free} GB")
-    logger.info(f"percent = {vmd.percent}%\n")
-    return total, used, free
 
-def swap_memory_data():
-    smd = psutil.swap_memory()
-    total = round(smd.total / 1073741824, 2)
-    used = round(smd.used / 1073741824, 2)
-    free = round(smd.free / 1073741824, 2)
-    logger.info("swap memory log:")
-    logger.info(f"total = {total} GB")
-    logger.info(f"used = {used} GB")
-    logger.info(f"free = {free} GB")
-    logger.info(f"percent = {smd.percent}%\n")
-    return total, used, free
+def cpu_data():
+    return psutil.cpu_percent(), round(psutil.cpu_freq().current / 1000, 2)
 
-def cpu_usage_data():
-    usage = psutil.cpu_percent(interval=1)
-    freq = round(psutil.cpu_freq().current / 1000, 2)
-    cores = psutil.cpu_count()
-    logger.info("cpu log:")
-    logger.info(f"usage = {usage}%")
-    logger.info(f"logical cpu's = {cores}")
-    logger.info(f"frequency = {freq} GHz\n")
-    return usage, freq, cores
 
-def netword_usage_data():
-    nud = psutil.net_io_counters()
-    logger.info("network log:")
-    logger.info(f"bytes sent = {nud.bytes_sent}")
-    logger.info(f"bytes received = {nud.bytes_recv}")
-    logger.info(f"packets sent = {nud.packets_sent}")
-    logger.info(f"packets received = {nud.packets_recv}")
-    logger.info(f"errors while sending = {nud.errout}")
-    logger.info(f"errors while receiving = {nud.errin}")
-    logger.info(f"outgoing packets dropped = {nud.dropout}")
-    logger.info(f"incoming packets dropped = {nud.dropin}\n")
-    return (
-        nud.bytes_sent, nud.bytes_recv, nud.packets_sent, nud.packets_recv,
-        nud.errout, nud.errin, nud.dropout, nud.dropin
-    )
+def memory_data():
+    mem = psutil.virtual_memory()
+    return round(mem.total / 1e9, 2), round(mem.used / 1e9, 2), round(mem.available / 1e9, 2)
 
-def temperature_sensors_data():
-    tsd = psutil.sensors_temperatures()
-    temp_data = {}
-    logger.info("temperature log:")
-    for category, entries in tsd.items():
-        logger.info(f"{category}:")
-        temp_data[category] = {}
-        for entry in entries:
-            label = entry.label or category
-            temp_data[category][label] = round(entry.current, 2)
-            logger.info(f"  {label} = {entry.current}°C")
-    logger.info("")
-    return temp_data
 
-def insert_metrics_to_db(data):
-    conn = sqlite3.connect(DB_FILE)
+def swap_data():
+    swp = psutil.swap_memory()
+    return round(swp.total / 1e9, 2), round(swp.used / 1e9, 2), round(swp.free / 1e9, 2)
+
+
+def network_data():
+    net = psutil.net_io_counters()
+    return (net.bytes_sent, net.bytes_recv, net.packets_sent, net.packets_recv,
+            net.errout, net.errin, net.dropout, net.dropin)
+
+
+def temperature_data():
+    temps = psutil.sensors_temperatures()
+    if "coretemp" in temps:
+        readings = [round(t.current, 2) for t in temps["coretemp"] if t.current is not None]
+        return round(st.mean(readings), 2) if readings else None
+    return None
+
+
+def log_and_store_metrics(conn):
     cursor = conn.cursor()
-    cursor.execute("""
+    timestamp = datetime.datetime.now()
+
+    disk_used, disk_free = check_disk_data()
+    cpu_usage, cpu_freq = cpu_data()
+    mem_total, mem_used, mem_free = memory_data()
+    swap_total, swap_used, swap_free = swap_data()
+    net_stats = network_data()
+    avg_cpu_temp = temperature_data()
+
+    # Write to human-readable log file (old style)
+    with open(LOG_FILE, "a") as log:
+        log.write(f"USER: {getpass.getuser()}\n")
+        log.write(f"{timestamp.isoformat()}\n")
+        log.write(f"timestamp: {timestamp.timestamp()}\n\n")
+
+        log.write("disk log:\n")
+        log.write(f"used = {disk_used} GB\n")
+        log.write(f"free = {disk_free} GB\n\n")
+
+        log.write("cpu log:\n")
+        log.write(f"usage = {cpu_usage} %\n")
+        log.write(f"logical cpu's = {psutil.cpu_count()}\n")
+        log.write(f"frequency = {cpu_freq} GHz\n\n")
+
+        log.write("virtual memory log:\n")
+        log.write(f"total = {mem_total} GB\n")
+        log.write(f"used = {mem_used} GB\n")
+        log.write(f"free = {mem_free} GB\n\n")
+
+        log.write("swap memory log:\n")
+        log.write(f"total = {swap_total} GB\n")
+        log.write(f"used = {swap_used} GB\n")
+        log.write(f"free = {swap_free} GB\n\n")
+
+        log.write("network log:\n")
+        log.write(f"bytes sent = {net_stats[0]}\n")
+        log.write(f"bytes received = {net_stats[1]}\n")
+        log.write(f"packets sent = {net_stats[2]}\n")
+        log.write(f"packets received = {net_stats[3]}\n")
+        log.write(f"errors while sending = {net_stats[4]}\n")
+        log.write(f"errors while receiving = {net_stats[5]}\n")
+        log.write(f"outgoing packets dropped = {net_stats[6]}\n")
+        log.write(f"incoming packets dropped = {net_stats[7]}\n\n")
+
+        log.write("temperature log:\n")
+        if avg_cpu_temp is not None:
+            log.write(f"average cpu temp = {avg_cpu_temp} °C\n\n")
+        else:
+            log.write("temperature data not available\n\n")
+
+        log.write("Executed successfully!\n")
+        log.write("-" * 50 + "\n\n")
+
+    # Insert into database
+    cursor.execute('''
         INSERT INTO metrics VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, data)
+    ''', (
+        timestamp.isoformat(), disk_used, disk_free, cpu_usage, cpu_freq, avg_cpu_temp,
+        mem_total, mem_used, mem_free, swap_total, swap_used, swap_free, *net_stats
+    ))
     conn.commit()
-    conn.close()
 
-# === Main ===
+
+# Entry point
 if __name__ == "__main__":
+    conn = init_database()
+    print("Logging system metrics every 30 seconds... Press Ctrl+C to stop.")
     try:
-        user_name = getpass.getuser()
-        now = datetime.datetime.now()
-        logger.info(f"USER: {user_name}")
-        logger.info(f"Timestamp: {now.isoformat()}")
-
-        disk_data = check_disk_data("/")
-        cpu_data = cpu_usage_data()
-        mem_data = virtual_memory_data()
-        swp_data = swap_memory_data()
-        net_data = netword_usage_data()
-        temp_data = temperature_sensors_data()
-
-        avg_temp = st.mean(temp_data.get("coretemp", {}).values()) if "coretemp" in temp_data else None
-
-        insert_metrics_to_db((
-            now.isoformat(),
-            disk_data[0], disk_data[1],
-            cpu_data[0], cpu_data[1], avg_temp,
-            mem_data[0], mem_data[1], mem_data[2],
-            swp_data[0], swp_data[1], swp_data[2],
-            *net_data
-        ))
-
-        logger.info("Metrics inserted into database successfully.\n")
-        print("[✓] Metrics logged successfully.")
-    except Exception as e:
-        logger.exception("Failed to log metrics.")
-        print("[✗] Failed to log metrics. See system_metrics.log for details.")
+        while True:
+            try:
+                log_and_store_metrics(conn)
+            except Exception as e:
+                with open(LOG_FILE, "a") as log:
+                    log.write("ERROR GETTING METRICS!\n")
+                    log.write(traceback.format_exc())
+                    log.write("-" * 50 + "\n\n")
+            time.sleep(INTERVAL)
+    except KeyboardInterrupt:
+        print("Logging stopped by user.")
+        conn.close()
 
